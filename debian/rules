@@ -1,0 +1,29 @@
+#!/usr/bin/make -f
+
+DEBIAN_DIR := $(shell echo ${MAKEFILE_LIST} | awk '{print $$1}' | xargs dirname )
+UPSTREAM_VERSION ?=$(shell uscan --dehs | sed -n 's/.*<upstream-version>\(.*\)<\/upstream-version>.*/\1/p')
+PACKAGE = wxsvg
+LDFLAGS+=-Wl,--as-needed
+
+%:
+	dh $@ --parallel --with=autoreconf,scour
+
+override_dh_auto_configure:
+	dh_auto_configure -- --enable-static=no
+
+override_dh_strip:
+	dh_strip --dbg-package=libwxsvg-dbg
+
+get-orig-source:
+	cd $(DEBIAN_DIR)/.. && uscan --force-download --rename
+	tar xf ../$(PACKAGE)_$(UPSTREAM_VERSION).orig.tar.bz2
+	rm ../$(PACKAGE)_$(UPSTREAM_VERSION).orig.tar.bz2
+	tar cf ../$(PACKAGE)_$(UPSTREAM_VERSION)~dfsg.orig.tar \
+		--exclude=pywxsvg \
+		--exclude=share \
+		--exclude=scripts \
+		--exclude=debian \
+		--exclude-vcs \
+		$(PACKAGE)-$(UPSTREAM_VERSION)
+	bzip2 -9f ../$(PACKAGE)_$(UPSTREAM_VERSION)~dfsg.orig.tar
+	rm -r $(PACKAGE)-$(UPSTREAM_VERSION)
