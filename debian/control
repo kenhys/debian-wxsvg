@@ -54,7 +54,7 @@ Depends:
  libpango1.0-dev,
  libswscale-dev,
  libwxgtk3.0-dev,
- libwxsvg2 (= ${binary:Version}),
+ libwxsvg3 (= ${binary:Version}),
  pkg-config,
  ${misc:Depends}
 Description: Development files for wxSVG
