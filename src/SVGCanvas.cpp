@@ -3,7 +3,7 @@
 // Purpose:     wxSVGCanvas - Base class for SVG renders (backends)
 // Author:      Alex Thuering
 // Created:     2005/05/04
-// RCS-ID:      $Id: SVGCanvas.cpp,v 1.25 2014/05/24 13:03:49 ntalex Exp $
+// RCS-ID:      $Id: SVGCanvas.cpp,v 1.27 2016/01/09 23:31:14 ntalex Exp $
 // Copyright:   (c) 2005 Alex Thuering
 // Licence:     wxWindows licence
 //////////////////////////////////////////////////////////////////////////////
@@ -65,8 +65,10 @@ void wxSVGCanvas::DrawImage(wxSVGImageElement* element, wxSVGMatrix* matrix, con
 	if (style->GetDisplay() == wxCSS_VALUE_INLINE) {
 		if (canvasItem->GetSvgImage() != NULL) {
 			wxSVGGElement* gElem = new wxSVGGElement();
+			gElem->SetOwnerDocument(element->GetOwnerDocument());
+			gElem->SetOwnerSVGElement(element->GetOwnerSVGElement());
 			gElem->Translate(canvasItem->m_x, canvasItem->m_y);
-			wxSVGSVGElement* svgElem = canvasItem->GetSvgImage();
+			wxSVGSVGElement* svgElem = canvasItem->GetSvgImage((wxSVGDocument*) element->GetOwnerDocument());
 			svgElem->SetWidth(canvasItem->m_width);
 			svgElem->SetHeight(canvasItem->m_height);
 			gElem->AddChild(svgElem);
@@ -129,6 +131,13 @@ wxSVGPatternElement* wxSVGCanvas::GetPatternElement(const wxSVGSVGElement& svgEl
 	    return NULL;
 	wxSVGElement* elem = (wxSVGElement*) svgElem.GetElementById(href.substr(1));
 	return elem != NULL && elem->GetDtd() == wxSVG_PATTERN_ELEMENT ? (wxSVGPatternElement*) elem : NULL;
+}
+
+wxSVGMarkerElement* wxSVGCanvas::GetMarkerElement(const wxSVGSVGElement& svgElem, const wxString& href) {
+	if (href.length() == 0 || href[0] != wxT('#') || &svgElem == NULL)
+		return NULL;
+	wxSVGElement* elem = (wxSVGElement*) svgElem.GetElementById(href.substr(1));
+	return elem != NULL && elem->GetDtd() == wxSVG_MARKER_ELEMENT ? (wxSVGMarkerElement*) elem : NULL;
 }
 
 wxSVGGradientElement* wxSVGCanvas::GetGradientElement(const wxSVGSVGElement& svgElem, const wxString& href) {
@@ -308,6 +317,16 @@ void wxSVGCanvas::RenderElement(wxSVGElement* elem, const wxSVGRect* rect, const
 			RenderChilds(elem, rect, &matrix, &style, element, element, progressDlg);
 		break;
 	}
+	case wxSVG_A_ELEMENT: {	
+        wxSVGAElement* element = (wxSVGAElement*) elem;
+        if (element->GetVisibility() == wxCSS_VALUE_HIDDEN)
+            break;
+        element->UpdateMatrix(matrix);
+        style.Add(element->GetStyle());
+        style.Add(element->GetAnimStyle());
+        RenderChilds(elem, rect, &matrix, &style, ownerSVGElement, viewportElement, progressDlg);
+        break;
+    }
 	case wxSVG_G_ELEMENT: {
 		wxSVGGElement* element = (wxSVGGElement*) elem;
 		if (element->GetVisibility() == wxCSS_VALUE_HIDDEN)

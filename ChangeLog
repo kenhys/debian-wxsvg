@@ -1,3 +1,93 @@
+Version 1.5.13 <2018-01-29>
+---------------------------
+
+  * added support of <a> element
+  * fixed wxSVGImageElement::GetBBox()
+  * fixed wxSVGUseElement::GetBBox()
+
+Version 1.5.12 <2017-05-01>
+--------------------------
+
+  * wxSVGSVGElement: fixed GetIntersectionList()
+  * wxSVGPointList: fixed SetValueAsString()
+
+Version 1.5.11 <2016-12-28>
+--------------------------
+
+  * wxSVGImage: fixed displaying of first video frame
+
+Version 1.5.10 <2016-10-23>
+--------------------------
+
+  * added support of EXIF metadata
+
+Version 1.5.9 <2016-08-09>
+--------------------------
+
+  * changed GetBBox() and GetResultBBox()
+  * added some missing header files
+
+Version 1.5.8 <2016-06-05>
+--------------------------
+
+  * fixed ApplyAnimation
+
+Version 1.5.7 <2016-05-03>
+--------------------------
+
+  * wxFfmpegMediaDecoder: added GetChapters() and GetMetadata()
+  * fixed SVGAnimationElement
+  
+Version 1.5.6 <2016-03-11>
+--------------------------
+
+  * fixed SVGAnimationElement
+
+Version 1.5.5 <2015-10-03>
+--------------------------
+
+  * fixed rendering image element with mask
+  * wxFfmpegMediaDecoder: added GetFormatName() and GetCodecTag()
+  * wxFfmpegMediaDecoder: fixed wxSVGCanvasVideo
+
+Version 1.5.4 <2015-03-21>
+--------------------------
+
+  * added support of 3-digit hex color codes (thanks to Constantine)
+
+Version 1.5.3 <2015-01-18>
+--------------------------
+
+  * applied patch from Sebastian Vater to fix memory leak
+
+Version 1.5.2 <2014-12-14>
+--------------------------
+  
+  * fixed memory leak (thanks to Sebastian Vater)
+
+Version 1.5.1 <2014-11-23>
+--------------------------
+
+  * fixed some compiler errors
+
+Version 1.5 <2014-08-09>
+------------------------
+
+  * added support of marker element
+  * added support of patternTransform attribute
+
+Version 1.4.2 <2014-07-06>
+--------------------------
+
+  * added support of stroke-dasharray
+  * fixed handling of preserveAspectRatio="none"
+
+Version 1.4.1 <2014-06-16>
+--------------------------
+
+  * fixed rendering of tspan-element
+  * fixed rendering of use element in pattern and mask elements
+
 Version 1.4 <2014-05-24>
 ------------------------
 

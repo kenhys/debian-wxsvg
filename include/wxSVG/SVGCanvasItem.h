@@ -3,7 +3,7 @@
 // Purpose:     Canvas items
 // Author:      Alex Thuering
 // Created:     2005/05/09
-// RCS-ID:      $Id: SVGCanvasItem.h,v 1.25 2013/08/25 12:53:34 ntalex Exp $
+// RCS-ID:      $Id: SVGCanvasItem.h,v 1.29 2016/07/27 08:54:21 ntalex Exp $
 // Copyright:   (c) 2005 Alex Thuering
 // Licence:     wxWindows licence
 /////////////////////////////////////////////////////////////////////////////
@@ -13,6 +13,9 @@
 
 #include "svg.h"
 #include <wx/dynarray.h>
+#include <vector>
+
+using std::vector;
 
 enum wxSVGCanvasItemType {
 	wxSVG_CANVAS_ITEM_PATH,
@@ -21,18 +24,29 @@ enum wxSVGCanvasItemType {
 	wxSVG_CANVAS_ITEM_VIDEO
 };
 
+
+struct wxSVGMark {
+	enum Type {
+		START, MID, END
+	};
+	
+	double x, y, angle;
+	Type type;
+	
+	wxSVGMark(double aX, double aY, double aAngle, Type aType): x(aX), y(aY), angle(aAngle), type(aType) {}
+};
+
 /** Base class for canvas items */
-class wxSVGCanvasItem
-{
+class wxSVGCanvasItem {
   public:
 	wxSVGCanvasItem(wxSVGCanvasItemType type) { m_type = type; }
 	virtual ~wxSVGCanvasItem() {}
 	wxSVGCanvasItemType GetType() { return m_type; }
 	
     /** returns the bounding box of the item */
-    virtual wxSVGRect GetBBox(const wxSVGMatrix& matrix = *(wxSVGMatrix*)NULL) { return wxSVGRect(); }
+    virtual wxSVGRect GetBBox(const wxSVGMatrix* matrix = NULL) { return wxSVGRect(); }
     virtual wxSVGRect GetResultBBox(const wxCSSStyleDeclaration& style,
-      const wxSVGMatrix& matrix = *(wxSVGMatrix*)NULL) { return GetBBox(); }
+      const wxSVGMatrix* matrix = NULL) { return GetBBox(matrix); }
 	
   protected:
 	wxSVGCanvasItemType m_type;
@@ -72,7 +86,11 @@ class wxSVGCanvasPath: public wxSVGCanvasItem
 	inline void SetFill(bool fill = true) { m_fill = fill; }
 	inline bool GetFill() { return m_fill; }
     
+    /** returns the marker points */
+    virtual vector<wxSVGMark> GetMarkPoints();
+    
   protected:
+    wxSVGElement* m_element;
 	bool m_fill; /* define, if a path can be filled (disabled for line) */
 	double m_curx, m_cury, m_cubicx, m_cubicy, m_quadx, m_quady, m_begx, m_begy;
 	virtual void MoveToImpl(double x, double y) = 0;
@@ -96,8 +114,8 @@ struct wxSVGCanvasTextChunk {
   wxSVGCanvasTextCharList chars;
   wxCSSStyleDeclaration style;
   wxSVGMatrix matrix;
-  wxSVGRect GetBBox(const wxSVGMatrix& matrix);
-  wxSVGRect GetBBox() { return GetBBox(*(wxSVGMatrix*)NULL); }
+  wxSVGRect GetBBox(const wxSVGMatrix* matrix);
+  wxSVGRect GetBBox() { return GetBBox(NULL); }
 };
 
 WX_DECLARE_OBJARRAY(wxSVGCanvasTextChunk, wxSVGCanvasTextChunkList);
@@ -110,7 +128,7 @@ class wxSVGCanvasText: public wxSVGCanvasItem
 	virtual ~wxSVGCanvasText();
 	
 	virtual void Init(wxSVGTextElement& element, const wxCSSStyleDeclaration& style, wxSVGMatrix* matrix);
-    virtual wxSVGRect GetBBox(const wxSVGMatrix& matrix = *(wxSVGMatrix*)NULL);
+    virtual wxSVGRect GetBBox(const wxSVGMatrix* matrix = NULL);
 	virtual long GetNumberOfChars();
     virtual double GetComputedTextLength();
     virtual double GetSubStringLength(unsigned long charnum, unsigned long nchars);
@@ -144,19 +162,35 @@ class wxSVGCanvasText: public wxSVGCanvasItem
     virtual void InitText(const wxString& text, const wxCSSStyleDeclaration& style, wxSVGMatrix* matrix) = 0;
 };
 
+class wxSVGCanvasSvgImageData {
+public:
+	wxSVGCanvasSvgImageData(const wxString& filename, wxSVGDocument* doc);
+	wxSVGCanvasSvgImageData(wxSVGSVGElement* svgImage, wxSVGDocument* doc);
+	~wxSVGCanvasSvgImageData();
+	
+	void IncRef() { m_count++; }
+	int DecRef() { return (--m_count); }
+	
+	inline wxSVGSVGElement* GetSvgImage() { return m_svgImage; }
+	
+private:
+    int m_count;
+    wxSVGSVGElement* m_svgImage;
+};
+
 /** Canvas item, that saves image (SVGImageElement) */
 class wxSVGCanvasImage: public wxSVGCanvasItem {
 public:
 	wxSVGCanvasImage(): wxSVGCanvasItem(wxSVG_CANVAS_ITEM_IMAGE), m_x(0), m_y(0), m_width(0), m_height(0),
-		m_defHeightScale(1), m_svgImage(NULL) {}
+		m_defHeightScale(1), m_svgImageData(NULL) {}
 	wxSVGCanvasImage(wxSVGCanvasItemType type): wxSVGCanvasItem(type), m_x(0), m_y(0), m_width(0), m_height(0),
-		m_defHeightScale(1), m_svgImage(NULL) {}
+		m_defHeightScale(1), m_svgImageData(NULL) {}
 	virtual ~wxSVGCanvasImage();
 	virtual void Init(wxSVGImageElement& element, const wxCSSStyleDeclaration& style, wxProgressDialog* progressDlg);
 	virtual int GetDefaultWidth();
 	virtual int GetDefaultHeight();
 	const wxSVGPreserveAspectRatio& GetPreserveAspectRatio() { return m_preserveAspectRatio; }
-	wxSVGSVGElement* GetSvgImage() { return m_svgImage; }
+	wxSVGSVGElement* GetSvgImage(wxSVGDocument* doc = NULL);
 	
 public:
 	double m_x, m_y, m_width, m_height; /** position and size of image */
@@ -164,7 +198,7 @@ public:
 	wxImage m_image; /** image data */
 	double m_defHeightScale;
 	wxSVGPreserveAspectRatio m_preserveAspectRatio;
-	wxSVGSVGElement* m_svgImage;
+	wxSVGCanvasSvgImageData* m_svgImageData;
 };
 
 class wxFfmpegMediaDecoder;
@@ -179,10 +213,12 @@ public:
 	int DecRef() { return (--m_count); }
 	
 	wxFfmpegMediaDecoder* GetMediaDecoder() { return m_mediaDecoder; }
+	wxImage GetImage(double time);
 	
 private:
 	int m_count;
 	wxFfmpegMediaDecoder* m_mediaDecoder;
+	wxImage m_image;
 };
 
 /** Canvas item, that saves video (wxSVGVideoElement) */
