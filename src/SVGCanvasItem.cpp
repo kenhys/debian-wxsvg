@@ -1,10 +1,9 @@
 //////////////////////////////////////////////////////////////////////////////
 // Name:        SVGCanvasItem.cpp
-// Purpose:     
 // Author:      Alex Thuering
 // Created:     2005/05/09
-// RCS-ID:      $Id: SVGCanvasItem.cpp,v 1.47 2014/03/03 17:08:26 ntalex Exp $
-// Copyright:   (c) 2005 Alex Thuering
+// RCS-ID:      $Id: SVGCanvasItem.cpp,v 1.58 2016/12/28 17:59:30 ntalex Exp $
+// Copyright:   (c) Alex Thuering
 // Licence:     wxWindows licence
 //////////////////////////////////////////////////////////////////////////////
 
@@ -12,6 +11,7 @@
 #include <wx/tokenzr.h>
 #include "SVGCanvasItem.h"
 #include "SVGCanvas.h"
+#include "ExifHandler.h"
 #include <math.h>
 #include <wx/log.h>
 #include <wx/progdlg.h>
@@ -27,264 +27,256 @@
 /////////////////////////////// wxSVGCanvasPath //////////////////////////////
 //////////////////////////////////////////////////////////////////////////////
 
-wxSVGCanvasPath::wxSVGCanvasPath(): wxSVGCanvasItem(wxSVG_CANVAS_ITEM_PATH)
-{
-  m_fill = true;
-  m_curx = m_cury = m_cubicx = m_cubicy = m_quadx = m_quady = 0;
-  m_begx = m_begy = 0;
+wxSVGCanvasPath::wxSVGCanvasPath() : wxSVGCanvasItem(wxSVG_CANVAS_ITEM_PATH) {
+	m_element = NULL;
+	m_fill = true;
+	m_curx = m_cury = m_cubicx = m_cubicy = m_quadx = m_quady = 0;
+	m_begx = m_begy = 0;
 }
 
-void wxSVGCanvasPath::Init(wxSVGLineElement& element)
-{
-  SetFill(false);
-  
-  MoveTo(element.GetX1().GetAnimVal(), element.GetY1().GetAnimVal());
-  LineTo(element.GetX2().GetAnimVal(), element.GetY2().GetAnimVal());
-  End();
+void wxSVGCanvasPath::Init(wxSVGLineElement& element) {
+	m_element = &element;
+	SetFill(false);
+
+	MoveTo(element.GetX1().GetAnimVal(), element.GetY1().GetAnimVal());
+	LineTo(element.GetX2().GetAnimVal(), element.GetY2().GetAnimVal());
+	End();
 }
 
-void wxSVGCanvasPath::Init(wxSVGPolylineElement& element)
-{
-  SetFill(false);
-  
-  const wxSVGPointList& points = element.GetPoints();
-  if (points.Count())
-	MoveTo(points[0].GetX(), points[0].GetY());
-  for (unsigned int i=1; i<points.Count(); i++)
-	LineTo(points[i].GetX(), points[i].GetY());
-  End();
+void wxSVGCanvasPath::Init(wxSVGPolylineElement& element) {
+	m_element = &element;
+	SetFill(false);
+
+	const wxSVGPointList& points = element.GetPoints();
+	if (points.Count())
+		MoveTo(points[0].GetX(), points[0].GetY());
+	for (unsigned int i = 1; i < points.Count(); i++)
+		LineTo(points[i].GetX(), points[i].GetY());
+	End();
 }
 
-void wxSVGCanvasPath::Init(wxSVGPolygonElement& element)
-{
-  const wxSVGPointList& points = element.GetPoints();
-  if (points.Count())
-	MoveTo(points[0].GetX(), points[0].GetY());
-  for (unsigned int i=1; i<points.Count(); i++)
-	LineTo(points[i].GetX(), points[i].GetY());
-  ClosePath();
-  End();
-}
-
-void wxSVGCanvasPath::Init(wxSVGRectElement& element)
-{
-  double x = element.GetX().GetAnimVal();
-  double y = element.GetY().GetAnimVal();
-  double width = element.GetWidth().GetAnimVal();
-  double height = element.GetHeight().GetAnimVal();
-  double rx = element.GetRx().GetAnimVal();
-  double ry = element.GetRy().GetAnimVal();
-  
-  if (rx == 0 && ry == 0)
-  {
-	MoveTo(x, y);
-	LineTo(width, 0, true);
-	LineTo(0, height, true);
-	LineTo(-width, 0, true);
+void wxSVGCanvasPath::Init(wxSVGPolygonElement& element) {
+	m_element = &element;
+	const wxSVGPointList& points = element.GetPoints();
+	if (points.Count())
+		MoveTo(points[0].GetX(), points[0].GetY());
+	for (unsigned int i = 1; i < points.Count(); i++)
+		LineTo(points[i].GetX(), points[i].GetY());
 	ClosePath();
-  }
-  else
-  {
-	if (rx == 0)
-	  rx = ry;
-	if (ry == 0)
-	  ry = rx;
-	if (rx > width/2)
-	  rx = width/2;
-	if (ry > height/2)
-	  ry = height/2;
-	MoveTo(x + rx, y);
-	CurveToCubic(x + rx*0.448, y, x, y + ry*0.448, x, y + ry);
-	if (ry < height/2)
-	  LineTo(x, y + height - ry);
-	CurveToCubic(x, y + height - ry*0.448, x + rx*0.448, y + height, x + rx, y + height);
-	if(rx < width/2)
-	  LineTo(x + width - rx, y + height);
-	CurveToCubic(x + width - rx*0.448, y + height, x + width, y + height - ry*0.448, x + width, y + height - ry);
-	if(ry < height/2)
-	  LineTo(x + width, y + ry);
-	CurveToCubic(x + width, y + ry*0.448, x + width - rx*0.448, y, x + width - rx, y);
-	if(rx < width/2)
-	  LineTo(x + rx, y);
-	ClosePath();
-  }
-  End();
+	End();
 }
 
-void wxSVGCanvasPath::Init(wxSVGCircleElement& element)
-{
-  double cx = element.GetCx().GetAnimVal();
-  double cy = element.GetCy().GetAnimVal();
-  double r = element.GetR().GetAnimVal();
-  double len = 0.55228474983079356;
-  double cos4[] = {1.0, 0.0, -1.0, 0.0, 1.0};
-  double sin4[] = {0.0, 1.0, 0.0, -1.0, 0.0};
-  
-  MoveTo(cx + r, cy);
-  
-  for (int i = 1; i<5; i++)
-  {
-	CurveToCubic(
-	  cx + (cos4[i-1] + len*cos4[i])*r,
-	  cy + (sin4[i-1] + len*sin4[i])*r,
-	  cx + (cos4[i] + len*cos4[i-1])*r,
-	  cy + (sin4[i] + len*sin4[i-1])*r,
-	  cx + (cos4[i])*r,
-	  cy + (sin4[i])*r);
-  }
-  End();
-}
+void wxSVGCanvasPath::Init(wxSVGRectElement& element) {
+	m_element = &element;
+	double x = element.GetX().GetAnimVal();
+	double y = element.GetY().GetAnimVal();
+	double width = element.GetWidth().GetAnimVal();
+	double height = element.GetHeight().GetAnimVal();
+	double rx = element.GetRx().GetAnimVal();
+	double ry = element.GetRy().GetAnimVal();
 
-void wxSVGCanvasPath::Init(wxSVGEllipseElement& element)
-{
-  double cx = element.GetCx().GetAnimVal();
-  double cy = element.GetCy().GetAnimVal();
-  double rx = element.GetRx().GetAnimVal();
-  double ry = element.GetRy().GetAnimVal();
-  double len = 0.55228474983079356;
-  double cos4[] = {1.0, 0.0, -1.0, 0.0, 1.0};
-  double sin4[] = {0.0, 1.0, 0.0, -1.0, 0.0};
-  
-  MoveTo(cx + rx, cy);
-  
-  for (int i = 1; i<5; i++)
-  {
-	CurveToCubic(
-	  cx + (cos4[i-1] + len*cos4[i])*rx,
-	  cy + (sin4[i-1] + len*sin4[i])*ry,
-	  cx + (cos4[i] + len*cos4[i-1])*rx,
-	  cy + (sin4[i] + len*sin4[i-1])*ry,
-	  cx + (cos4[i])*rx,
-	  cy + (sin4[i])*ry);
-  }
-  End();
-}
-
-void wxSVGCanvasPath::Init(wxSVGPathElement& element)
-{
-  const wxSVGPathSegList& segList = element.GetPathSegList();
-  for (int i = 0; i < (int)segList.Count(); i++)
-  {
-	switch (segList[i].GetPathSegType())
-	{
-	  case wxPATHSEG_MOVETO_ABS:
-	  {
-		wxSVGPathSegMovetoAbs& seg = (wxSVGPathSegMovetoAbs&)(segList[i]);
-		MoveTo(seg.GetX(), seg.GetY());
-		break;
-	  }
-	  case wxPATHSEG_MOVETO_REL:
-	  {
-		wxSVGPathSegMovetoRel& seg = (wxSVGPathSegMovetoRel&)(segList[i]);
-		MoveTo(seg.GetX(), seg.GetY(), true);
-		break;
-	  }
-	  case wxPATHSEG_LINETO_ABS:
-	  {
-		wxSVGPathSegLinetoAbs& seg = (wxSVGPathSegLinetoAbs&)segList[i];
-		LineTo(seg.GetX(), seg.GetY());
-		break;
-	  }
-	  case wxPATHSEG_LINETO_REL:
-	  {
-		wxSVGPathSegLinetoRel& seg = (wxSVGPathSegLinetoRel&)segList[i];
-		LineTo(seg.GetX(), seg.GetY(), true);
-		break;
-	  }
-	  case wxPATHSEG_LINETO_HORIZONTAL_ABS:
-	  {
-		wxSVGPathSegLinetoHorizontalAbs& seg = (wxSVGPathSegLinetoHorizontalAbs&)segList[i];
-		LineToHorizontal(seg.GetX());
-		break;
-	  }
-	  case wxPATHSEG_LINETO_HORIZONTAL_REL:
-	  {
-		wxSVGPathSegLinetoHorizontalRel& seg = (wxSVGPathSegLinetoHorizontalRel&)segList[i];
-		LineToHorizontal(seg.GetX(), true);
-		break;
-	  }
-	  case wxPATHSEG_LINETO_VERTICAL_ABS:
-	  {
-		wxSVGPathSegLinetoVerticalAbs& seg = (wxSVGPathSegLinetoVerticalAbs&)segList[i];
-		LineToVertical(seg.GetY());
-		break;
-	  }
-	  case wxPATHSEG_LINETO_VERTICAL_REL:
-	  {
-		wxSVGPathSegLinetoVerticalRel& seg = (wxSVGPathSegLinetoVerticalRel&)segList[i];
-		LineToVertical(seg.GetY(), true);
-		break;
-	  }
-	  case wxPATHSEG_CURVETO_CUBIC_ABS:
-	  {
-		wxSVGPathSegCurvetoCubicAbs& seg = (wxSVGPathSegCurvetoCubicAbs&)segList[i];
-		CurveToCubic(seg.GetX1(), seg.GetY1(), seg.GetX2(), seg.GetY2(), seg.GetX(), seg.GetY());
-		break;
-	  }
-	  case wxPATHSEG_CURVETO_CUBIC_REL:
-	  {
-		wxSVGPathSegCurvetoCubicRel& seg = (wxSVGPathSegCurvetoCubicRel&)segList[i];
-		CurveToCubic(seg.GetX1(), seg.GetY1(), seg.GetX2(), seg.GetY2(), seg.GetX(), seg.GetY(), true);
-		break;
-	  }
-	  case wxPATHSEG_CURVETO_CUBIC_SMOOTH_ABS:
-	  {
-		wxSVGPathSegCurvetoCubicSmoothAbs& seg = (wxSVGPathSegCurvetoCubicSmoothAbs&)segList[i];
-		CurveToCubicSmooth(seg.GetX2(), seg.GetY2(), seg.GetX(), seg.GetY());
-		break;
-	  }
-	  case wxPATHSEG_CURVETO_CUBIC_SMOOTH_REL:
-	  {
-		wxSVGPathSegCurvetoCubicSmoothRel& seg = (wxSVGPathSegCurvetoCubicSmoothRel&)segList[i];
-		CurveToCubicSmooth(seg.GetX2(), seg.GetY2(), seg.GetX(), seg.GetY(), true);
-		break;
-	  }
-	  case wxPATHSEG_CURVETO_QUADRATIC_ABS:
-	  {
-		wxSVGPathSegCurvetoQuadraticAbs& seg = (wxSVGPathSegCurvetoQuadraticAbs&)segList[i];
-		CurveToQuadratic(seg.GetX1(), seg.GetY1(), seg.GetX(), seg.GetY());
-		break;
-	  }
-	  case wxPATHSEG_CURVETO_QUADRATIC_REL:
-	  {
-		wxSVGPathSegCurvetoQuadraticRel& seg = (wxSVGPathSegCurvetoQuadraticRel&)segList[i];
-		CurveToQuadratic(seg.GetX1(), seg.GetY1(), seg.GetX(), seg.GetY(), true);
-		break;
-	  }
-	  case wxPATHSEG_CURVETO_QUADRATIC_SMOOTH_ABS:
-	  {
-		wxSVGPathSegCurvetoQuadraticSmoothAbs& seg = (wxSVGPathSegCurvetoQuadraticSmoothAbs&)segList[i];
-		CurveToQuadraticSmooth(seg.GetX(), seg.GetY());
-		break;
-	  }
-	  case wxPATHSEG_CURVETO_QUADRATIC_SMOOTH_REL:
-	  {
-		wxSVGPathSegCurvetoQuadraticSmoothRel& seg = (wxSVGPathSegCurvetoQuadraticSmoothRel&)segList[i];
-		CurveToQuadraticSmooth(seg.GetX(), seg.GetY(), true);
-		break;
-	  }
-	  case wxPATHSEG_ARC_ABS:
-	  {
-		wxSVGPathSegArcAbs& seg = (wxSVGPathSegArcAbs&)segList[i];
-		Arc(seg.GetX(), seg.GetY(), seg.GetR1(), seg.GetR2(), seg.GetAngle(),
-			seg.GetLargeArcFlag(), seg.GetSweepFlag());
-		break;
-	  }
-	  case wxPATHSEG_ARC_REL:
-	  {
-		wxSVGPathSegArcRel& seg = (wxSVGPathSegArcRel&)segList[i];
-		Arc(seg.GetX(), seg.GetY(), seg.GetR1(), seg.GetR2(), seg.GetAngle(),
-			seg.GetLargeArcFlag(), seg.GetSweepFlag(), true);
-		break;
-	  }
-	  case wxPATHSEG_CLOSEPATH:
+	if (rx == 0 && ry == 0) {
+		MoveTo(x, y);
+		LineTo(width, 0, true);
+		LineTo(0, height, true);
+		LineTo(-width, 0, true);
 		ClosePath();
-		break;
-	  case wxPATHSEG_UNKNOWN:
-		break;
+	} else {
+		if (rx == 0)
+			rx = ry;
+		if (ry == 0)
+			ry = rx;
+		if (rx > width / 2)
+			rx = width / 2;
+		if (ry > height / 2)
+			ry = height / 2;
+		MoveTo(x + rx, y);
+		CurveToCubic(x + rx * 0.448, y, x, y + ry * 0.448, x, y + ry);
+		if (ry < height / 2)
+			LineTo(x, y + height - ry);
+		CurveToCubic(x, y + height - ry * 0.448, x + rx * 0.448, y + height,
+				x + rx, y + height);
+		if (rx < width / 2)
+			LineTo(x + width - rx, y + height);
+		CurveToCubic(x + width - rx * 0.448, y + height, x + width,
+				y + height - ry * 0.448, x + width, y + height - ry);
+		if (ry < height / 2)
+			LineTo(x + width, y + ry);
+		CurveToCubic(x + width, y + ry * 0.448, x + width - rx * 0.448, y,
+				x + width - rx, y);
+		if (rx < width / 2)
+			LineTo(x + rx, y);
+		ClosePath();
 	}
-  }
-  End();
+	End();
+}
+
+void wxSVGCanvasPath::Init(wxSVGCircleElement& element) {
+	m_element = &element;
+	double cx = element.GetCx().GetAnimVal();
+	double cy = element.GetCy().GetAnimVal();
+	double r = element.GetR().GetAnimVal();
+	double len = 0.55228474983079356;
+	double cos4[] = { 1.0, 0.0, -1.0, 0.0, 1.0 };
+	double sin4[] = { 0.0, 1.0, 0.0, -1.0, 0.0 };
+
+	MoveTo(cx + r, cy);
+
+	for (int i = 1; i < 5; i++) {
+		CurveToCubic(cx + (cos4[i - 1] + len * cos4[i]) * r,
+				cy + (sin4[i - 1] + len * sin4[i]) * r,
+				cx + (cos4[i] + len * cos4[i - 1]) * r,
+				cy + (sin4[i] + len * sin4[i - 1]) * r, cx + (cos4[i]) * r,
+				cy + (sin4[i]) * r);
+	}
+	End();
+}
+
+void wxSVGCanvasPath::Init(wxSVGEllipseElement& element) {
+	m_element = &element;
+	double cx = element.GetCx().GetAnimVal();
+	double cy = element.GetCy().GetAnimVal();
+	double rx = element.GetRx().GetAnimVal();
+	double ry = element.GetRy().GetAnimVal();
+	double len = 0.55228474983079356;
+	double cos4[] = { 1.0, 0.0, -1.0, 0.0, 1.0 };
+	double sin4[] = { 0.0, 1.0, 0.0, -1.0, 0.0 };
+
+	MoveTo(cx + rx, cy);
+
+	for (int i = 1; i < 5; i++) {
+		CurveToCubic(cx + (cos4[i - 1] + len * cos4[i]) * rx,
+				cy + (sin4[i - 1] + len * sin4[i]) * ry,
+				cx + (cos4[i] + len * cos4[i - 1]) * rx,
+				cy + (sin4[i] + len * sin4[i - 1]) * ry, cx + (cos4[i]) * rx,
+				cy + (sin4[i]) * ry);
+	}
+	End();
+}
+
+void wxSVGCanvasPath::Init(wxSVGPathElement& element) {
+	m_element = &element;
+	const wxSVGPathSegList& segList = element.GetPathSegList();
+	for (int i = 0; i < (int) segList.Count(); i++) {
+		switch (segList[i].GetPathSegType()) {
+		case wxPATHSEG_MOVETO_ABS: {
+			wxSVGPathSegMovetoAbs& seg = (wxSVGPathSegMovetoAbs&) (segList[i]);
+			MoveTo(seg.GetX(), seg.GetY());
+			break;
+		}
+		case wxPATHSEG_MOVETO_REL: {
+			wxSVGPathSegMovetoRel& seg = (wxSVGPathSegMovetoRel&) (segList[i]);
+			MoveTo(seg.GetX(), seg.GetY(), true);
+			break;
+		}
+		case wxPATHSEG_LINETO_ABS: {
+			wxSVGPathSegLinetoAbs& seg = (wxSVGPathSegLinetoAbs&) segList[i];
+			LineTo(seg.GetX(), seg.GetY());
+			break;
+		}
+		case wxPATHSEG_LINETO_REL: {
+			wxSVGPathSegLinetoRel& seg = (wxSVGPathSegLinetoRel&) segList[i];
+			LineTo(seg.GetX(), seg.GetY(), true);
+			break;
+		}
+		case wxPATHSEG_LINETO_HORIZONTAL_ABS: {
+			wxSVGPathSegLinetoHorizontalAbs& seg =
+					(wxSVGPathSegLinetoHorizontalAbs&) segList[i];
+			LineToHorizontal(seg.GetX());
+			break;
+		}
+		case wxPATHSEG_LINETO_HORIZONTAL_REL: {
+			wxSVGPathSegLinetoHorizontalRel& seg =
+					(wxSVGPathSegLinetoHorizontalRel&) segList[i];
+			LineToHorizontal(seg.GetX(), true);
+			break;
+		}
+		case wxPATHSEG_LINETO_VERTICAL_ABS: {
+			wxSVGPathSegLinetoVerticalAbs& seg =
+					(wxSVGPathSegLinetoVerticalAbs&) segList[i];
+			LineToVertical(seg.GetY());
+			break;
+		}
+		case wxPATHSEG_LINETO_VERTICAL_REL: {
+			wxSVGPathSegLinetoVerticalRel& seg =
+					(wxSVGPathSegLinetoVerticalRel&) segList[i];
+			LineToVertical(seg.GetY(), true);
+			break;
+		}
+		case wxPATHSEG_CURVETO_CUBIC_ABS: {
+			wxSVGPathSegCurvetoCubicAbs& seg =
+					(wxSVGPathSegCurvetoCubicAbs&) segList[i];
+			CurveToCubic(seg.GetX1(), seg.GetY1(), seg.GetX2(), seg.GetY2(),
+					seg.GetX(), seg.GetY());
+			break;
+		}
+		case wxPATHSEG_CURVETO_CUBIC_REL: {
+			wxSVGPathSegCurvetoCubicRel& seg =
+					(wxSVGPathSegCurvetoCubicRel&) segList[i];
+			CurveToCubic(seg.GetX1(), seg.GetY1(), seg.GetX2(), seg.GetY2(),
+					seg.GetX(), seg.GetY(), true);
+			break;
+		}
+		case wxPATHSEG_CURVETO_CUBIC_SMOOTH_ABS: {
+			wxSVGPathSegCurvetoCubicSmoothAbs& seg =
+					(wxSVGPathSegCurvetoCubicSmoothAbs&) segList[i];
+			CurveToCubicSmooth(seg.GetX2(), seg.GetY2(), seg.GetX(),
+					seg.GetY());
+			break;
+		}
+		case wxPATHSEG_CURVETO_CUBIC_SMOOTH_REL: {
+			wxSVGPathSegCurvetoCubicSmoothRel& seg =
+					(wxSVGPathSegCurvetoCubicSmoothRel&) segList[i];
+			CurveToCubicSmooth(seg.GetX2(), seg.GetY2(), seg.GetX(), seg.GetY(),
+					true);
+			break;
+		}
+		case wxPATHSEG_CURVETO_QUADRATIC_ABS: {
+			wxSVGPathSegCurvetoQuadraticAbs& seg =
+					(wxSVGPathSegCurvetoQuadraticAbs&) segList[i];
+			CurveToQuadratic(seg.GetX1(), seg.GetY1(), seg.GetX(), seg.GetY());
+			break;
+		}
+		case wxPATHSEG_CURVETO_QUADRATIC_REL: {
+			wxSVGPathSegCurvetoQuadraticRel& seg =
+					(wxSVGPathSegCurvetoQuadraticRel&) segList[i];
+			CurveToQuadratic(seg.GetX1(), seg.GetY1(), seg.GetX(), seg.GetY(),
+					true);
+			break;
+		}
+		case wxPATHSEG_CURVETO_QUADRATIC_SMOOTH_ABS: {
+			wxSVGPathSegCurvetoQuadraticSmoothAbs& seg =
+					(wxSVGPathSegCurvetoQuadraticSmoothAbs&) segList[i];
+			CurveToQuadraticSmooth(seg.GetX(), seg.GetY());
+			break;
+		}
+		case wxPATHSEG_CURVETO_QUADRATIC_SMOOTH_REL: {
+			wxSVGPathSegCurvetoQuadraticSmoothRel& seg =
+					(wxSVGPathSegCurvetoQuadraticSmoothRel&) segList[i];
+			CurveToQuadraticSmooth(seg.GetX(), seg.GetY(), true);
+			break;
+		}
+		case wxPATHSEG_ARC_ABS: {
+			wxSVGPathSegArcAbs& seg = (wxSVGPathSegArcAbs&) segList[i];
+			Arc(seg.GetX(), seg.GetY(), seg.GetR1(), seg.GetR2(),
+					seg.GetAngle(), seg.GetLargeArcFlag(), seg.GetSweepFlag());
+			break;
+		}
+		case wxPATHSEG_ARC_REL: {
+			wxSVGPathSegArcRel& seg = (wxSVGPathSegArcRel&) segList[i];
+			Arc(seg.GetX(), seg.GetY(), seg.GetR1(), seg.GetR2(),
+					seg.GetAngle(), seg.GetLargeArcFlag(), seg.GetSweepFlag(),
+					true);
+			break;
+		}
+		case wxPATHSEG_CLOSEPATH:
+			ClosePath();
+			break;
+		case wxPATHSEG_UNKNOWN:
+			break;
+		}
+	}
+	End();
 }
 
 //////////////////////////////////////////////////////////////////////////////
@@ -523,6 +515,495 @@ bool wxSVGCanvasPath::ClosePath()
   return isClosed;
 }
 
+double AngleOfVector(const wxSVGPoint& vec) {
+	return vec != wxSVGPoint(0.0, 0.0) ? atan2(vec.GetY(), vec.GetX()) : 0.0;
+}
+
+bool IsMoveto(wxPATHSEG segType) {
+	return segType == wxPATHSEG_MOVETO_ABS || segType == wxPATHSEG_MOVETO_REL;
+}
+
+bool IsCubicType(wxPATHSEG segType) {
+	return segType == wxPATHSEG_CURVETO_CUBIC_REL
+			|| segType == wxPATHSEG_CURVETO_CUBIC_ABS
+			|| segType == wxPATHSEG_CURVETO_CUBIC_SMOOTH_REL
+			|| segType == wxPATHSEG_CURVETO_CUBIC_SMOOTH_ABS;
+}
+
+bool IsQuadraticType(wxPATHSEG segType) {
+	return segType == wxPATHSEG_CURVETO_QUADRATIC_REL
+			|| segType == wxPATHSEG_CURVETO_QUADRATIC_ABS
+			|| segType == wxPATHSEG_CURVETO_QUADRATIC_SMOOTH_REL
+			|| segType == wxPATHSEG_CURVETO_QUADRATIC_SMOOTH_ABS;
+}
+
+double AngleBisect(float a1, float a2) {
+	double delta = (double) fmod(a2 - a1, 2 * M_PI);
+	if (delta < 0) {
+		delta += 2 * M_PI;
+	}
+	/* delta is now the angle from a1 around to a2, in the range [0, 2*M_PI) */
+	double r = a1 + delta / 2;
+	if (delta >= M_PI) {
+		/* the arc from a2 to a1 is smaller, so use the ray on that side */
+		r += M_PI;
+	}
+	return r;
+}
+
+void GetPolylineMarkPoints(const wxSVGPointList &points, vector<wxSVGMark>& marks) {
+	if (!points.size())
+		return;
+	
+	float px = points[0].GetX(), py = points[0].GetY(), prevAngle = 0.0;
+	
+	marks.push_back(wxSVGMark(px, py, 0, wxSVGMark::START));
+	
+	for (unsigned int i = 1; i < points.size(); ++i) {
+		float x = points[i].GetX();
+		float y = points[i].GetY();
+		float angle = atan2(y-py, x-px);
+		
+		// Vertex marker.
+		if (i == 1) {
+			marks.begin()->angle = angle;
+		} else {
+			(marks.begin() + (marks.size() - 2))->angle = AngleBisect(prevAngle, angle);
+		}
+		
+		marks.push_back(wxSVGMark(x, y, 0, wxSVGMark::MID));
+		
+		prevAngle = angle;
+		px = x;
+		py = y;
+	}
+	
+	marks.back().angle = prevAngle;
+	marks.back().type = wxSVGMark::END;
+}
+
+void GetPathMarkPoints(const wxSVGPathSegList& segments, vector<wxSVGMark>& marks) {
+	// This code should assume that ANY type of segment can appear at ANY index.
+	// It should also assume that segments such as M and Z can appear in weird
+	// places, and repeat multiple times consecutively.
+
+	// info on current [sub]path (reset every M command):
+	wxSVGPoint pathStart(0.0, 0.0);
+	double pathStartAngle = 0.0f;
+
+	// info on previous segment:
+	wxPATHSEG prevSegType = wxPATHSEG_UNKNOWN;
+	wxSVGPoint prevSegEnd(0.0, 0.0);
+	double prevSegEndAngle = 0.0f;
+	wxSVGPoint prevCP; // if prev seg was a bezier, this was its last control point
+
+	unsigned int i = 0;
+	while (i < segments.size()) {
+		// info on current segment:
+		wxPATHSEG segType = segments[i].GetPathSegType();
+		wxSVGPoint& segStart = prevSegEnd;
+		wxSVGPoint segEnd;
+		double segStartAngle = 0, segEndAngle = 0;
+
+		switch (segType) { // to find segStartAngle, segEnd and segEndAngle
+		case wxPATHSEG_CLOSEPATH:
+			segEnd = pathStart;
+			segStartAngle = segEndAngle = AngleOfVector(segEnd - segStart);
+			break;
+
+		case wxPATHSEG_MOVETO_ABS: {
+			wxSVGPathSegMovetoAbs& seg = ((wxSVGPathSegMovetoAbs&) segments[i]);
+			segEnd = wxSVGPoint(seg.GetX(), seg.GetY());
+			pathStart = segEnd;
+			// If authors are going to specify multiple consecutive moveto commands
+			// with markers, me might as well make the angle do something useful:
+			segStartAngle = segEndAngle = AngleOfVector(segEnd - segStart);
+			break;
+		}
+		case wxPATHSEG_MOVETO_REL: {
+			wxSVGPathSegMovetoRel& seg = ((wxSVGPathSegMovetoRel&) segments[i]);
+			segEnd = segStart + wxSVGPoint(seg.GetX(), seg.GetY());
+			pathStart = segEnd;
+			segStartAngle = segEndAngle = AngleOfVector(segEnd - segStart);
+			break;
+		}
+		case wxPATHSEG_LINETO_ABS: {
+			wxSVGPathSegLinetoAbs& seg = ((wxSVGPathSegLinetoAbs&) segments[i]);
+			segEnd = wxSVGPoint(seg.GetX(), seg.GetY());
+			segStartAngle = segEndAngle = AngleOfVector(segEnd - segStart);
+			break;
+		}
+		case wxPATHSEG_LINETO_REL: {
+			wxSVGPathSegLinetoRel& seg = ((wxSVGPathSegLinetoRel&) segments[i]);
+			segEnd = segStart + wxSVGPoint(seg.GetX(), seg.GetY());
+			segStartAngle = segEndAngle = AngleOfVector(segEnd - segStart);
+			break;
+		}
+		case wxPATHSEG_CURVETO_CUBIC_ABS: {
+			wxSVGPathSegCurvetoCubicAbs& seg = ((wxSVGPathSegCurvetoCubicAbs&) segments[i]);
+			wxSVGPoint cp1 = wxSVGPoint(seg.GetX1(), seg.GetY1());
+			wxSVGPoint cp2 = wxSVGPoint(seg.GetX2(), seg.GetY2());
+			segEnd = wxSVGPoint(seg.GetX(), seg.GetY());
+			prevCP = cp2;
+			if (cp1 == segStart) {
+				cp1 = cp2;
+			}
+			if (cp2 == segEnd) {
+				cp2 = cp1;
+			}
+			segStartAngle = AngleOfVector(cp1 - segStart);
+			segEndAngle = AngleOfVector(segEnd - cp2);
+			break;
+		}
+		case wxPATHSEG_CURVETO_CUBIC_REL: {
+			wxSVGPathSegCurvetoCubicRel& seg = ((wxSVGPathSegCurvetoCubicRel&) segments[i]);
+			wxSVGPoint cp1 = segStart + wxSVGPoint(seg.GetX1(), seg.GetY1());
+			wxSVGPoint cp2 = segStart + wxSVGPoint(seg.GetX2(), seg.GetY2());
+			segEnd = segStart + wxSVGPoint(seg.GetX(), seg.GetY());
+			prevCP = cp2;
+			if (cp1 == segStart) {
+				cp1 = cp2;
+			}
+			if (cp2 == segEnd) {
+				cp2 = cp1;
+			}
+			segStartAngle = AngleOfVector(cp1 - segStart);
+			segEndAngle = AngleOfVector(segEnd - cp2);
+			break;
+		}
+
+		case wxPATHSEG_CURVETO_QUADRATIC_ABS: {
+			wxSVGPathSegCurvetoQuadraticAbs& seg = ((wxSVGPathSegCurvetoQuadraticAbs&) segments[i]);
+			wxSVGPoint cp1 = wxSVGPoint(seg.GetX1(), seg.GetY1());
+			segEnd = wxSVGPoint(seg.GetX(), seg.GetY());
+			prevCP = cp1;
+			segStartAngle = AngleOfVector(cp1 - segStart);
+			segEndAngle = AngleOfVector(segEnd - cp1);
+			break;
+		}
+		case wxPATHSEG_CURVETO_QUADRATIC_REL: {
+			wxSVGPathSegCurvetoQuadraticRel& seg = ((wxSVGPathSegCurvetoQuadraticRel&) segments[i]);
+			wxSVGPoint cp1 = segStart + wxSVGPoint(seg.GetX1(), seg.GetY1());
+			wxSVGPoint segEnd = segStart + wxSVGPoint(seg.GetX(), seg.GetY());
+			prevCP = cp1;
+			segStartAngle = AngleOfVector(cp1 - segStart);
+			segEndAngle = AngleOfVector(segEnd - cp1);
+			break;
+		}
+
+		case wxPATHSEG_ARC_ABS: {
+			wxSVGPathSegArcAbs& seg = ((wxSVGPathSegArcAbs&) segments[i]);
+			double rx = seg.GetR1();
+			double ry = seg.GetR2();
+			double angle = seg.GetAngle();
+			bool largeArcFlag = seg.GetLargeArcFlag();
+			bool sweepFlag = seg.GetSweepFlag();
+			segEnd = wxSVGPoint(seg.GetX(), seg.GetY());
+
+			if (segStart == segEnd) {
+				i++;
+				continue;
+			}
+
+			if (rx == 0.0 || ry == 0.0) {
+				segStartAngle = segEndAngle = AngleOfVector(segEnd - segStart);
+				break;
+			}
+			rx = fabs(rx);
+			ry = fabs(ry);
+
+			angle = angle * M_PI / 180.0;
+			double x1p = cos(angle) * (segStart.GetX() - segEnd.GetX()) / 2.0
+					+ sin(angle) * (segStart.GetY() - segEnd.GetY()) / 2.0;
+			double y1p = -sin(angle) * (segStart.GetX() - segEnd.GetX()) / 2.0
+					+ cos(angle) * (segStart.GetY() - segEnd.GetY()) / 2.0;
+
+			double root;
+			double numerator = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p;
+
+			if (numerator >= 0.0) {
+				root = sqrt(numerator / (rx * rx * y1p * y1p + ry * ry * x1p * x1p));
+				if (largeArcFlag == sweepFlag)
+					root = -root;
+			} else {
+				double lamedh = 1.0 - numerator / (rx * rx * ry * ry);
+				double s = sqrt(lamedh);
+				rx *= s;
+				ry *= s;
+				root = 0.0;
+			}
+
+			double cxp = root * rx * y1p / ry; 
+			double cyp = -root * ry * x1p / rx;
+
+			double theta, delta;
+			theta = AngleOfVector(wxSVGPoint((x1p - cxp) / rx, (y1p - cyp) / ry));
+			delta = AngleOfVector(wxSVGPoint((-x1p - cxp) / rx, (-y1p - cyp) / ry)) - theta;
+			if (!sweepFlag && delta > 0)
+				delta -= 2.0 * M_PI;
+			else if (sweepFlag && delta < 0)
+				delta += 2.0 * M_PI;
+
+			double tx1, ty1, tx2, ty2;
+			tx1 = -cos(angle) * rx * sin(theta)	- sin(angle) * ry * cos(theta);
+			ty1 = -sin(angle) * rx * sin(theta)	+ cos(angle) * ry * cos(theta);
+			tx2 = -cos(angle) * rx * sin(theta + delta)	- sin(angle) * ry * cos(theta + delta);
+			ty2 = -sin(angle) * rx * sin(theta + delta)	+ cos(angle) * ry * cos(theta + delta);
+
+			if (delta < 0.0f) {
+				tx1 = -tx1;
+				ty1 = -ty1;
+				tx2 = -tx2;
+				ty2 = -ty2;
+			}
+
+			segStartAngle = atan2(ty1, tx1);
+			segEndAngle = atan2(ty2, tx2);
+			break;
+		}
+		case wxPATHSEG_ARC_REL: {
+			wxSVGPathSegArcRel& seg = ((wxSVGPathSegArcRel&) segments[i]);
+			double rx = seg.GetR1();
+			double ry = seg.GetR2();
+			double angle = seg.GetAngle();
+			bool largeArcFlag = seg.GetLargeArcFlag();
+			bool sweepFlag = seg.GetSweepFlag();
+			segEnd = segStart + wxSVGPoint(seg.GetX(), seg.GetY());
+
+			if (segStart == segEnd) {
+				i++;
+				continue;
+			}
+
+			if (rx == 0.0 || ry == 0.0) {
+				segStartAngle = segEndAngle = AngleOfVector(segEnd - segStart);
+				break;
+			}
+			rx = fabs(rx);
+			ry = fabs(ry);
+
+			angle = angle * M_PI / 180.0;
+			double x1p = cos(angle) * (segStart.GetX() - segEnd.GetX()) / 2.0
+					+ sin(angle) * (segStart.GetY() - segEnd.GetY()) / 2.0;
+			double y1p = -sin(angle) * (segStart.GetX() - segEnd.GetX()) / 2.0
+					+ cos(angle) * (segStart.GetY() - segEnd.GetY()) / 2.0;
+
+			double root;
+			double numerator = rx * rx * ry * ry - rx * rx * y1p * y1p - ry * ry * x1p * x1p;
+
+			if (numerator >= 0.0) {
+				root = sqrt(numerator / (rx * rx * y1p * y1p + ry * ry * x1p * x1p));
+				if (largeArcFlag == sweepFlag)
+					root = -root;
+			} else {
+				double lamedh = 1.0 - numerator / (rx * rx * ry * ry);
+				double s = sqrt(lamedh);
+				rx *= s;
+				ry *= s;
+				root = 0.0;
+			}
+
+			double cxp = root * rx * y1p / ry; 
+			double cyp = -root * ry * x1p / rx;
+
+			double theta, delta;
+			theta = AngleOfVector(wxSVGPoint((x1p - cxp) / rx, (y1p - cyp) / ry));
+			delta = AngleOfVector(wxSVGPoint((-x1p - cxp) / rx, (-y1p - cyp) / ry)) - theta;
+			if (!sweepFlag && delta > 0)
+				delta -= 2.0 * M_PI;
+			else if (sweepFlag && delta < 0)
+				delta += 2.0 * M_PI;
+
+			double tx1, ty1, tx2, ty2;
+			tx1 = -cos(angle) * rx * sin(theta)	- sin(angle) * ry * cos(theta);
+			ty1 = -sin(angle) * rx * sin(theta)	+ cos(angle) * ry * cos(theta);
+			tx2 = -cos(angle) * rx * sin(theta + delta)	- sin(angle) * ry * cos(theta + delta);
+			ty2 = -sin(angle) * rx * sin(theta + delta)	+ cos(angle) * ry * cos(theta + delta);
+
+			if (delta < 0.0f) {
+				tx1 = -tx1;
+				ty1 = -ty1;
+				tx2 = -tx2;
+				ty2 = -ty2;
+			}
+
+			segStartAngle = atan2(ty1, tx1);
+			segEndAngle = atan2(ty2, tx2);
+			break;
+		}
+
+		case wxPATHSEG_LINETO_HORIZONTAL_ABS: {
+			wxSVGPathSegLinetoHorizontalAbs& seg = ((wxSVGPathSegLinetoHorizontalAbs&) segments[i]);
+			segEnd = wxSVGPoint(seg.GetX(), segStart.GetY());
+			segStartAngle = segEndAngle = AngleOfVector(segEnd - segStart);
+			break;
+		}
+		case wxPATHSEG_LINETO_HORIZONTAL_REL: {
+			wxSVGPathSegLinetoHorizontalRel& seg = ((wxSVGPathSegLinetoHorizontalRel&) segments[i]);
+			segEnd = segStart + wxSVGPoint(seg.GetX(), 0.0f);
+			segStartAngle = segEndAngle = AngleOfVector(segEnd - segStart);
+			break;
+		}
+
+		case wxPATHSEG_LINETO_VERTICAL_ABS: {
+			wxSVGPathSegLinetoVerticalAbs& seg = ((wxSVGPathSegLinetoVerticalAbs&) segments[i]);
+			segEnd = wxSVGPoint(segStart.GetX(), seg.GetY());
+			segStartAngle = segEndAngle = AngleOfVector(segEnd - segStart);
+			break;
+		}
+		case wxPATHSEG_LINETO_VERTICAL_REL: {
+			wxSVGPathSegLinetoVerticalRel& seg = ((wxSVGPathSegLinetoVerticalRel&) segments[i]);
+			segEnd = segStart + wxSVGPoint(0.0f, seg.GetY());
+			segStartAngle = segEndAngle = AngleOfVector(segEnd - segStart);
+			break;
+		}
+
+		case wxPATHSEG_CURVETO_CUBIC_SMOOTH_ABS: {
+			wxSVGPathSegCurvetoCubicSmoothAbs& seg = ((wxSVGPathSegCurvetoCubicSmoothAbs&) segments[i]);
+			wxSVGPoint cp1 = IsCubicType(prevSegType) ? segStart * 2 - prevCP : segStart;
+			wxSVGPoint cp2 = wxSVGPoint(seg.GetX2(), seg.GetY2());
+			segEnd = wxSVGPoint(seg.GetX(), seg.GetY());
+			prevCP = cp2;
+			if (cp1 == segStart) {
+				cp1 = cp2;
+			}
+			if (cp2 == segEnd) {
+				cp2 = cp1;
+			}
+			segStartAngle = AngleOfVector(cp1 - segStart);
+			segEndAngle = AngleOfVector(segEnd - cp2);
+			break;
+		}
+		case wxPATHSEG_CURVETO_CUBIC_SMOOTH_REL: {
+			wxSVGPathSegCurvetoCubicSmoothRel& seg = ((wxSVGPathSegCurvetoCubicSmoothRel&) segments[i]);
+			wxSVGPoint cp1 = IsCubicType(prevSegType) ? segStart * 2 - prevCP : segStart;
+			wxSVGPoint cp2 = segStart + wxSVGPoint(seg.GetX2(), seg.GetY2());
+			segEnd = segStart + wxSVGPoint(seg.GetX(), seg.GetY());
+			prevCP = cp2;
+			if (cp1 == segStart) {
+				cp1 = cp2;
+			}
+			if (cp2 == segEnd) {
+				cp2 = cp1;
+			}
+			segStartAngle = AngleOfVector(cp1 - segStart);
+			segEndAngle = AngleOfVector(segEnd - cp2);
+			break;
+		}
+
+		case wxPATHSEG_CURVETO_QUADRATIC_SMOOTH_ABS: {
+			wxSVGPathSegCurvetoQuadraticAbs& seg = ((wxSVGPathSegCurvetoQuadraticAbs&) segments[i]);
+			wxSVGPoint cp1 = IsQuadraticType(prevSegType) ? segStart * 2 - prevCP : segStart;
+			segEnd = wxSVGPoint(seg.GetX(), seg.GetY());
+			prevCP = cp1;
+			segStartAngle = AngleOfVector(cp1 - segStart);
+			segEndAngle = AngleOfVector(segEnd - cp1);
+			break;
+		}
+		case wxPATHSEG_CURVETO_QUADRATIC_SMOOTH_REL: {
+			wxSVGPathSegCurvetoQuadraticRel& seg = ((wxSVGPathSegCurvetoQuadraticRel&) segments[i]);
+			wxSVGPoint cp1 = IsQuadraticType(prevSegType) ? segStart * 2 - prevCP : segStart;
+			segEnd = segStart + wxSVGPoint(seg.GetX(), seg.GetY());
+			prevCP = cp1;
+			segStartAngle = AngleOfVector(cp1 - segStart);
+			segEndAngle = AngleOfVector(segEnd - cp1);
+			break;
+		}
+		
+		case wxPATHSEG_UNKNOWN:
+		default:
+			break;
+		}
+		i++;
+
+		// Set the angle of the mark at the start of this segment:
+		if (marks.size()) {
+			wxSVGMark &mark = marks.back();
+			if (!IsMoveto(segType) && IsMoveto(prevSegType)) {
+				// start of new subpath
+				pathStartAngle = mark.angle = segStartAngle;
+			} else if (IsMoveto(segType) && !IsMoveto(prevSegType)) {
+				// end of a subpath
+				if (prevSegType != wxPATHSEG_CLOSEPATH)
+					mark.angle = prevSegEndAngle;
+			} else {
+				if (!(segType == wxPATHSEG_CLOSEPATH && prevSegType == wxPATHSEG_CLOSEPATH))
+					mark.angle = AngleBisect(prevSegEndAngle, segStartAngle);
+			}
+		}
+
+		// Add the mark at the end of this segment, and set its position:
+		marks.push_back(wxSVGMark(segEnd.GetX(), segEnd.GetY(), 0.0f, wxSVGMark::MID));
+
+		if (segType == wxPATHSEG_CLOSEPATH && prevSegType != wxPATHSEG_CLOSEPATH) {
+			marks.back().angle = AngleBisect(segEndAngle, pathStartAngle);
+		}
+
+		prevSegType = segType;
+		prevSegEnd = segEnd;
+		prevSegEndAngle = segEndAngle;
+	}
+
+	if (marks.size()) {
+		if (prevSegType != wxPATHSEG_CLOSEPATH) {
+			marks.back().angle = prevSegEndAngle;
+		}
+		marks.back().type = wxSVGMark::END;
+		marks.begin()->type = wxSVGMark::START;
+	}
+}
+
+/** Returns the marker points.
+ *  Adopted from mozilla code.
+ */
+vector<wxSVGMark> wxSVGCanvasPath::GetMarkPoints() {
+	vector<wxSVGMark> marks;
+	if (m_element == NULL)
+		return marks;
+	switch (m_element->GetDtd()) {
+	case wxSVG_POLYLINE_ELEMENT: {
+		wxSVGPolylineElement* elem = ((wxSVGPolylineElement*) m_element);
+		GetPolylineMarkPoints(elem->GetPoints(), marks);
+		break;
+	}
+	case wxSVG_POLYGON_ELEMENT: {
+		wxSVGPolygonElement* elem = ((wxSVGPolygonElement*) m_element);
+		GetPolylineMarkPoints(elem->GetPoints(), marks);
+		if (marks.size() == 0 || marks.back().type != wxSVGMark::END) {
+			break;
+		}
+		
+		wxSVGMark& endMark = marks.back();
+		wxSVGMark& startMark = *marks.begin();
+		float angle = atan2(startMark.y - endMark.y, startMark.x - endMark.x);
+		
+		endMark.type = wxSVGMark::MID;
+		endMark.angle = AngleBisect(angle, endMark.angle);
+		startMark.angle = AngleBisect(angle, startMark.angle);
+		// for a polygon (as opposed to a polyline) there's an implicit extra point co-located with the start point
+		// that GetPolylineMarkPoints doesn't return
+		marks.push_back(wxSVGMark(startMark.x, startMark.y, startMark.angle, wxSVGMark::END));
+		break;
+	}
+	case wxSVG_LINE_ELEMENT: {
+		wxSVGLineElement* elem = ((wxSVGLineElement*) m_element);
+		double angle = atan2(elem->GetY2().GetAnimVal() - elem->GetY1().GetAnimVal(),
+				elem->GetX2().GetAnimVal() - elem->GetX1().GetAnimVal());
+
+		marks.push_back(wxSVGMark(elem->GetX1().GetAnimVal(), elem->GetY1().GetAnimVal(), angle, wxSVGMark::START));
+		marks.push_back(wxSVGMark(elem->GetX2().GetAnimVal(), elem->GetY2().GetAnimVal(), angle, wxSVGMark::END));
+		break;
+	}
+	case wxSVG_PATH_ELEMENT: {
+		GetPathMarkPoints(((wxSVGPathElement*) m_element)->GetPathSegList(), marks);
+		break;
+	}
+	default:
+		break;
+	}
+	return marks;
+}
+
 //////////////////////////////////////////////////////////////////////////////
 /////////////////////////////// wxSVGCanvasText //////////////////////////////
 //////////////////////////////////////////////////////////////////////////////
@@ -582,11 +1063,21 @@ void wxSVGCanvasText::InitChildren(wxSVGTextPositioningElement& element, const w
 						t[i] = wxT('\t');
 				text += t;
 			} else {
+				if (elem->GetPreviousSibling() != NULL) {
+					wxChar ch = elem->GetContent().GetChar(0);
+					if (ch == wxT(' ') || ch == wxT('\t') || ch == wxT('\n') || ch == wxT('\r'))
+						text += wxT(' ');
+				}
 				wxStringTokenizer tokenizer(elem->GetContent());
 				while (tokenizer.HasMoreTokens()) {
 					text += tokenizer.GetNextToken();
-					if (tokenizer.HasMoreTokens())
-						text += wxT(" ");
+					if (tokenizer.HasMoreTokens()) {
+						text += wxT(' ');
+					} else if (elem->GetNext() != NULL) {
+						wxChar ch = elem->GetContent().Last();
+						if (ch == wxT(' ') || ch == wxT('\t') || ch == wxT('\n') || ch == wxT('\r'))
+							text += wxT(' ');
+					}
 				}
 			}
 		} else if (elem->GetType() == wxSVGXML_ELEMENT_NODE && elem->GetDtd() == wxSVG_TBREAK_ELEMENT) {
@@ -673,12 +1164,12 @@ void wxSVGCanvasText::EndTextAnchor() {
 	}
 }
 
-wxSVGRect wxSVGCanvasTextChunk::GetBBox(const wxSVGMatrix& matrix) {
+wxSVGRect wxSVGCanvasTextChunk::GetBBox(const wxSVGMatrix* matrix) {
 	wxSVGRect bbox;
 	for (int i = 0; i < (int) chars.Count(); i++) {
 		wxSVGRect elemBBox = chars[i].path->GetBBox(matrix);
 		if (elemBBox.IsEmpty())
-			elemBBox = &matrix ? chars[i].bbox.MatrixTransform(matrix) : chars[i].bbox;
+			elemBBox = matrix ? chars[i].bbox.MatrixTransform(*matrix) : chars[i].bbox;
 		if (i == 0)
 			bbox = elemBBox;
 		else {
@@ -699,15 +1190,15 @@ wxSVGRect wxSVGCanvasTextChunk::GetBBox(const wxSVGMatrix& matrix) {
 	return bbox;
 }
 
-wxSVGRect wxSVGCanvasText::GetBBox(const wxSVGMatrix& matrix)
+wxSVGRect wxSVGCanvasText::GetBBox(const wxSVGMatrix* matrix)
 {
   wxSVGRect bbox;
   for (int i=0; i<(int)m_chunks.Count(); i++)
   {
     wxSVGMatrix tmpMatrix = m_chunks[i].matrix;
-    if (&matrix)
-      tmpMatrix = ((wxSVGMatrix&) matrix).Multiply(m_chunks[i].matrix);
-    wxSVGRect elemBBox = m_chunks[i].GetBBox(tmpMatrix);
+    if (matrix)
+      tmpMatrix = (*matrix).Multiply(m_chunks[i].matrix);
+    wxSVGRect elemBBox = m_chunks[i].GetBBox(&tmpMatrix);
 	if (i == 0)
 	  bbox = elemBBox;
 	else
@@ -859,11 +1350,42 @@ double wxSVGCanvasText::GetRotationOfChar(unsigned long charnum)
 
 
 //////////////////////////////////////////////////////////////////////////////
+////////////////////////// wxSVGCanvasSvgImageData ///////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+wxSVGCanvasSvgImageData::wxSVGCanvasSvgImageData(const wxString& filename, wxSVGDocument* doc) {
+	m_count = 1;
+	m_svgImage = NULL;
+	wxSVGDocument imgDoc;
+	if (imgDoc.Load(filename) && imgDoc.GetRootElement() != NULL) {
+		m_svgImage = imgDoc.GetRootElement();
+		imgDoc.RemoveChild(m_svgImage);
+		
+		m_svgImage->SetOwnerDocument(doc);
+		if (m_svgImage->GetViewBox().GetBaseVal().IsEmpty()
+				&& m_svgImage->GetWidth().GetBaseVal().GetValue() > 0
+				&& m_svgImage->GetWidth().GetBaseVal().GetUnitType() != wxSVG_LENGTHTYPE_PERCENTAGE)
+			m_svgImage->SetViewBox(
+					wxSVGRect(0, 0, m_svgImage->GetWidth().GetBaseVal(), m_svgImage->GetHeight().GetBaseVal()));
+	}
+}
+
+wxSVGCanvasSvgImageData::wxSVGCanvasSvgImageData(wxSVGSVGElement* svgImage, wxSVGDocument* doc) {
+	m_count = 1;
+	m_svgImage = new wxSVGSVGElement(*svgImage);
+	m_svgImage->SetOwnerDocument(doc);
+}
+
+wxSVGCanvasSvgImageData::~wxSVGCanvasSvgImageData() {
+	if (m_svgImage)
+		delete m_svgImage;
+}
+
+//////////////////////////////////////////////////////////////////////////////
 ////////////////////////////// wxSVGCanvasImage //////////////////////////////
 //////////////////////////////////////////////////////////////////////////////
 wxSVGCanvasImage::~wxSVGCanvasImage() {
-	if (m_svgImage)
-		delete m_svgImage;
+	if (m_svgImageData != NULL && m_svgImageData->DecRef() == 0)
+		delete m_svgImageData;
 }
 
 void wxSVGCanvasImage::Init(wxSVGImageElement& element, const wxCSSStyleDeclaration& style,
@@ -879,9 +1401,12 @@ void wxSVGCanvasImage::Init(wxSVGImageElement& element, const wxCSSStyleDeclarat
 	if (prevItem != NULL && prevItem->m_href == m_href) {
 		m_image = prevItem->m_image;
 		m_defHeightScale = prevItem->m_defHeightScale;
-		m_svgImage = prevItem->m_svgImage != NULL ? new wxSVGSVGElement(*prevItem->m_svgImage) : NULL;
+		if (prevItem->m_svgImageData) {
+			m_svgImageData = prevItem->m_svgImageData;
+			m_svgImageData->IncRef();
+		}
 	} else if (m_href.length()) {
-		long pos = 0;
+		long pos = -1;
 		wxString filename = m_href;
 		if (filename.StartsWith(wxT("concat:"))) {
 			if (filename.Find(wxT('#')) != wxNOT_FOUND && filename.AfterLast(wxT('#')).ToLong(&pos))
@@ -903,16 +1428,11 @@ void wxSVGCanvasImage::Init(wxSVGImageElement& element, const wxCSSStyleDeclarat
 				wxLogError(_("Can't load image from file '%s': file does not exist."), filename.c_str());
 				return;
 			}
-			if (element.GetHref().GetAnimVal().EndsWith(wxT(".svg"))) {
-				wxSVGDocument imgDoc;
-				if (imgDoc.Load(filename) && imgDoc.GetRootElement() != NULL) {
-					m_svgImage = imgDoc.GetRootElement();
-					imgDoc.RemoveChild(m_svgImage);
-					if (m_svgImage->GetViewBox().GetBaseVal().IsEmpty()
-							&& m_svgImage->GetWidth().GetBaseVal().GetValue() > 0
-							&& m_svgImage->GetWidth().GetBaseVal().GetUnitType() != wxSVG_LENGTHTYPE_PERCENTAGE)
-						m_svgImage->SetViewBox(
-								wxSVGRect(0, 0, m_svgImage->GetWidth().GetBaseVal(), m_svgImage->GetHeight().GetBaseVal()));
+			if (filename.EndsWith(wxT(".svg"))) {
+				m_svgImageData = new wxSVGCanvasSvgImageData(filename, (wxSVGDocument*) element.GetOwnerDocument());
+				if (m_svgImageData->GetSvgImage() == NULL) {
+					delete m_svgImageData;
+					m_svgImageData = NULL;
 				}
 				return;
 			}
@@ -920,6 +1440,7 @@ void wxSVGCanvasImage::Init(wxSVGImageElement& element, const wxCSSStyleDeclarat
 #ifdef USE_LIBAV
 		bool log = wxLog::EnableLogging(false);
 		m_image.LoadFile(filename);
+		ExifHandler::rotateImage(filename, m_image);
 		wxLog::EnableLogging(log);
 		if (!m_image.Ok()) {
 			wxFfmpegMediaDecoder decoder;
@@ -931,7 +1452,7 @@ void wxSVGCanvasImage::Init(wxSVGImageElement& element, const wxCSSStyleDeclarat
 				double duration = decoder.GetDuration();
 				if (duration > 0 || pos > 0) {
 					m_image = decoder.GetNextFrame();
-					double dpos = pos > 0 ? ((double)pos)/1000 : (duration < 6000 ? duration * 0.05 : 300);
+					double dpos = pos >= 0 ? ((double)pos)/1000 : (duration < 6000 ? duration * 0.05 : 300);
 					if (!decoder.SetPosition(dpos > 1.0 ? dpos - 1.0 : 0.0)) {
 						wxLog* oldLog = wxLog::SetActiveTarget(new wxLogStderr());
 						wxLogError(wxT("decoder.GetDuration(): %f"), duration);
@@ -958,6 +1479,7 @@ void wxSVGCanvasImage::Init(wxSVGImageElement& element, const wxCSSStyleDeclarat
 			}
 		}
 #else
+		ExifHandler::rotateImage(filename, m_image);
 		m_image.LoadFile(filename);
 #endif
 	}
@@ -975,6 +1497,21 @@ int wxSVGCanvasImage::GetDefaultHeight() {
 	return m_image.Ok() ? m_image.GetHeight() * m_defHeightScale : 0;
 }
 
+wxSVGSVGElement* wxSVGCanvasImage::GetSvgImage(wxSVGDocument* doc) {
+	if (m_svgImageData == NULL)
+		return NULL;
+	if (doc != NULL) {
+		if (m_svgImageData->GetSvgImage()->GetOwnerDocument() == NULL) {
+			m_svgImageData->GetSvgImage()->SetOwnerDocument(doc);
+		} else if (m_svgImageData->GetSvgImage()->GetOwnerDocument() != doc) {
+			wxSVGCanvasSvgImageData* svgImageDataOld = m_svgImageData;
+			m_svgImageData = new wxSVGCanvasSvgImageData(m_svgImageData->GetSvgImage(), doc);
+			if (svgImageDataOld->DecRef() == 0)
+				delete svgImageDataOld;
+		}
+	}
+	return m_svgImageData->GetSvgImage();
+}
 
 //////////////////////////////////////////////////////////////////////////////
 ////////////////////////////// wxSVGCanvasVideo //////////////////////////////
@@ -989,6 +1526,26 @@ wxSVGCanvasVideoData::~wxSVGCanvasVideoData() {
 	if (m_mediaDecoder)
 		delete m_mediaDecoder;
 #endif
+}
+
+wxImage wxSVGCanvasVideoData::GetImage(double time) {
+#ifdef USE_LIBAV
+	double currTime = m_mediaDecoder->GetPosition();
+	double ftime = m_mediaDecoder->GetFps() >= 1 ? 1.0 / m_mediaDecoder->GetFps() : 0.04;
+	if (currTime >= time + ftime/2 || currTime < time - ftime/2 || !m_image.IsOk()) {
+		if (currTime > time || time - currTime > 50*ftime) {
+			m_mediaDecoder->SetPosition(time > 1.0 ? time - 1.0 : 0.0);
+		}
+		for (int i = 0; i < 60; i++) {
+			m_image = m_mediaDecoder->GetNextFrame();
+			currTime = m_mediaDecoder->GetPosition();
+			if (currTime >= time - ftime/2 || currTime < 0) {
+				break;
+			}
+		}
+	}
+#endif
+	return m_image;
 }
 
 wxSVGCanvasVideo::wxSVGCanvasVideo(): wxSVGCanvasImage(wxSVG_CANVAS_ITEM_VIDEO) {
@@ -1027,21 +1584,13 @@ void wxSVGCanvasVideo::Init(wxSVGVideoElement& element, const wxCSSStyleDeclarat
 		m_defHeightScale = prevItem->m_defHeightScale;
 		wxFfmpegMediaDecoder* decoder = m_videoData->GetMediaDecoder();
 		if (decoder != NULL) {
+			double prevTime = prevItem->m_time;
 			double ftime = decoder->GetFps() >= 1 ? 1.0 / decoder->GetFps() : 0.04;
-			double currTime = decoder->GetPosition();
-			if (currTime != m_time && (currTime >= m_time + ftime/2 || m_time - currTime > ftime/2)) {
-				if (currTime > m_time || m_time - currTime > 50*ftime) {
-					decoder->SetPosition(m_time > 1.0 ? m_time - 1.0 : 0.0);
-				}
-				for (int i = 0; i < 60; i++) {
-					m_image = decoder->GetNextFrame();
-					currTime = decoder->GetPosition();
-					if (currTime >= m_time - ftime/2 || currTime < 0) {
-						break;
-					}
-				}
-			} else
+			if (prevTime >= m_time + ftime/2 || prevTime < m_time - ftime/2) {
+				m_image = m_videoData->GetImage(m_time);
+			} else {
 				m_image = prevItem->m_image;
+			}
 		}
 	} else if (m_href.length()) {
 		wxFfmpegMediaDecoder* decoder = new wxFfmpegMediaDecoder();
