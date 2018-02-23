@@ -2,6 +2,12 @@ Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: wxSVG
 Upstream-Contact: Alex Thuering <alex.thuering@web.de>
 Source: http://sourceforge.net/projects/wxsvg/files/
+Files-Excluded: 
+ scripts/*
+ share/*
+# scripts/* and share/* contains license unclarified files. It
+# seems that share/SVG11CSSpropidx.xhtml matches
+# https://www.w3.org/TR/2003/REC-SVG11-20030114/propidx.html.
 
 Files: *
 Copyright:
