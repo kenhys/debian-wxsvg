@@ -16,11 +16,9 @@ get-orig-source:
 	tar xf ../$(PACKAGE)_$(UPSTREAM_VERSION).orig.tar.bz2
 	rm ../$(PACKAGE)_$(UPSTREAM_VERSION).orig.tar.bz2
 	tar cf ../$(PACKAGE)_$(UPSTREAM_VERSION)~dfsg.orig.tar \
-		--exclude=pywxsvg \
 		--exclude=share \
 		--exclude=scripts \
 		--exclude=debian \
-		--exclude-vcs \
 		$(PACKAGE)-$(UPSTREAM_VERSION)
 	bzip2 -9f ../$(PACKAGE)_$(UPSTREAM_VERSION)~dfsg.orig.tar
 	rm -r $(PACKAGE)-$(UPSTREAM_VERSION)
