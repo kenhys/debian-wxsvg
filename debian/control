@@ -11,6 +11,7 @@ Build-Depends:
  libavcodec-dev,
  libavformat-dev,
  libavutil-dev,
+ libexif-dev,
  libexpat-dev,
  libpango1.0-dev (>= 1.20.2),
  libswscale-dev,
