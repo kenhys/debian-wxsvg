@@ -1,4 +1,4 @@
-Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: wxSVG
 Upstream-Contact: Alex Thuering <alex.thuering@web.de>
 Source: http://sourceforge.net/projects/wxsvg/files/
