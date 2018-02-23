@@ -1,3 +1,9 @@
+wxsvg (2:1.5.13~dfsg-1) unstable; urgency=medium
+
+  * New upstream version 1.5.13~dfsg
+
+ -- Kentaro Hayashi <hayashi@clear-code.com>  Fri, 23 Feb 2018 22:46:27 +0900
+
 wxsvg (2:1.4~dfsg-2) unstable; urgency=medium
 
   * Fix file conflict between libwxsvg0 and libxwsvg2. (Closes: #751710)
